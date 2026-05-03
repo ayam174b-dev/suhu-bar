@@ -11,15 +11,23 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Reads battery temperature via BatteryManager (sticky ACTION_BATTERY_CHANGED broadcast)
- * and best-effort CPU temperature from /sys/class/thermal/thermal_zone*.
+ * Reads battery temperature and best-effort CPU temperature.
+ *
+ * Battery temperature is fetched in this order:
+ *  1. Direct kernel sysfs (`/sys/class/power_supply/battery/temp`, etc.) — always fresh.
+ *  2. `BatteryManager` sticky `ACTION_BATTERY_CHANGED` broadcast — fallback for devices that
+ *     restrict sysfs access. Note: the sticky broadcast is only re-published when other battery
+ *     fields change, so the temperature value can stay constant for many seconds even when the
+ *     real value drifts.
+ *
+ * CPU temperature is read best-effort from `/sys/class/thermal/thermal_zone*`.
  */
 @Singleton
 class TemperatureReader @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     fun read(): TemperatureData? {
-        val battery = readBatteryTemp() ?: return null
+        val battery = readBatteryTempFromSysfs() ?: readBatteryTempFromBroadcast() ?: return null
         val cpu = readCpuTemp()
         return TemperatureData(
             batteryTemp = battery,
@@ -28,7 +36,26 @@ class TemperatureReader @Inject constructor(
         )
     }
 
-    private fun readBatteryTemp(): Float? {
+    private fun readBatteryTempFromSysfs(): Float? {
+        for (path in BATTERY_SYSFS_PATHS) {
+            val file = File(path)
+            if (!file.exists() || !file.canRead()) continue
+            val raw = runCatching { file.readText().trim().toLongOrNull() }.getOrNull() ?: continue
+            // Most kernels report tenths of °C (e.g. 380 = 38.0); some report milli-°C.
+            val celsius = when {
+                raw > 1_000 -> raw / 1000f
+                raw > 200 -> raw / 10f
+                else -> raw.toFloat()
+            }
+            if (celsius.isValid()) {
+                Log.d(TAG, "Battery temp via sysfs: $path -> $celsius°C")
+                return celsius
+            }
+        }
+        return null
+    }
+
+    private fun readBatteryTempFromBroadcast(): Float? {
         val intent: Intent = context.registerReceiver(
             null,
             IntentFilter(Intent.ACTION_BATTERY_CHANGED)
@@ -72,5 +99,13 @@ class TemperatureReader @Inject constructor(
 
     companion object {
         private const val TAG = "TemperatureReader"
+
+        /** Common sysfs locations exposing live battery temperature on Android kernels. */
+        private val BATTERY_SYSFS_PATHS = listOf(
+            "/sys/class/power_supply/battery/temp",
+            "/sys/class/power_supply/battery/batt_temp",
+            "/sys/class/power_supply/bms/temp",
+            "/sys/class/power_supply/Battery/temp"
+        )
     }
 }

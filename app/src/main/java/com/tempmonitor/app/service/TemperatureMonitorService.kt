@@ -156,10 +156,9 @@ class TemperatureMonitorService : Service() {
                 (latest.cpuTemp?.let { " · CPU ${"%.1f".format(it)}°C" } ?: "")
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(body)
-            .setSmallIcon(R.drawable.ic_thermometer)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -174,7 +173,17 @@ class TemperatureMonitorService : Service() {
                     stopIntent
                 ).build()
             )
-            .build()
+
+        // Status-bar small icon: render the current battery temperature as digits so the user
+        // can read the value without opening the notification shade. Falls back to the static
+        // thermometer drawable until the first reading arrives.
+        if (latest != null) {
+            builder.setSmallIcon(NotificationIconRenderer.render(this, latest.batteryTemp))
+        } else {
+            builder.setSmallIcon(R.drawable.ic_thermometer)
+        }
+
+        return builder.build()
     }
 
     private fun acquireWakeLock() {
