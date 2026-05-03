@@ -24,19 +24,35 @@ import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tempmonitor.app.data.TemperatureReader
+import kotlinx.coroutines.delay
 
 @Composable
-fun InfoScreen() {
+fun InfoScreen(viewModel: InfoViewModel = hiltViewModel()) {
+    val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        while (true) {
+            viewModel.refresh()
+            delay(3_000L)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -133,7 +149,90 @@ fun InfoScreen() {
             )
         }
 
+        DiagnosticsSection(diagnostics, onRefresh = viewModel::refresh)
+
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun DiagnosticsSection(
+    diagnostics: TemperatureReader.Diagnostics?,
+    onRefresh: () -> Unit
+) {
+    Section(title = "Diagnostics") {
+        Text(
+            "Pakai panel ini untuk memverifikasi sumber data dan memastikan angka memang berubah. Refresh otomatis tiap 3 detik.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (diagnostics == null) {
+            Text("Memuat\u2026", style = MaterialTheme.typography.bodySmall)
+            return@Section
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Sumber aktif",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(diagnostics.chosenSource, style = MaterialTheme.typography.bodyMedium)
+            }
+            OutlinedButton(onClick = onRefresh) { Text("Refresh") }
+        }
+        HorizontalDivider()
+        Text("Battery sysfs", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        diagnostics.sysfsBatteryPaths.forEach { p ->
+            val state = when {
+                !p.exists -> "missing"
+                !p.readable -> "blocked"
+                p.celsius == null -> "unreadable"
+                else -> "%.1f\u00B0C".format(p.celsius)
+            }
+            DiagnosticsRow(p.path, state)
+        }
+        DiagnosticsRow(
+            "BroadcastReceiver",
+            diagnostics.broadcastCelsius?.let { "%.1f\u00B0C".format(it) } ?: "belum ada update"
+        )
+        HorizontalDivider()
+        Text(
+            "Thermal zones (${diagnostics.thermalZones.size})",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        diagnostics.thermalZones.forEach { z ->
+            val state = when {
+                !z.readable -> "blocked"
+                z.celsius == null -> "invalid"
+                else -> "%.1f\u00B0C".format(z.celsius)
+            }
+            DiagnosticsRow(
+                label = "${z.zoneName}: ${z.type ?: "?"}",
+                value = state
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
