@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -24,10 +25,12 @@ import androidx.navigation.compose.rememberNavController
 import com.tempmonitor.app.ui.dashboard.DashboardScreen
 import com.tempmonitor.app.ui.history.HistoryScreen
 import com.tempmonitor.app.ui.info.InfoScreen
+import com.tempmonitor.app.ui.session.SessionScreen
 import com.tempmonitor.app.ui.settings.SettingsScreen
 
 sealed class Destination(val route: String, val label: String, val icon: ImageVector) {
     data object Dashboard : Destination("dashboard", "Dashboard", Icons.Filled.Thermostat)
+    data object Sessions : Destination("sessions", "Sesi", Icons.Filled.SportsEsports)
     data object History : Destination("history", "History", Icons.Filled.History)
     data object Settings : Destination("settings", "Settings", Icons.Filled.Settings)
     data object Info : Destination("info", "Bantuan", Icons.AutoMirrored.Filled.HelpOutline)
@@ -35,6 +38,7 @@ sealed class Destination(val route: String, val label: String, val icon: ImageVe
 
 private val items = listOf(
     Destination.Dashboard,
+    Destination.Sessions,
     Destination.History,
     Destination.Settings,
     Destination.Info
@@ -76,6 +80,7 @@ fun AppNavigation() {
             modifier = Modifier.padding(padding)
         ) {
             composable(Destination.Dashboard.route) { DashboardScreen() }
+            composable(Destination.Sessions.route) { SessionScreen() }
             composable(Destination.History.route) { HistoryScreen() }
             composable(Destination.Settings.route) { SettingsScreen() }
             composable(Destination.Info.route) { InfoScreen() }

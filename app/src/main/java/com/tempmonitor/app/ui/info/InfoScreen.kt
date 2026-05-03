@@ -131,6 +131,19 @@ fun InfoScreen(viewModel: InfoViewModel = hiltViewModel()) {
             )
         }
 
+        Section(title = "Sesi gaming") {
+            BulletItem(
+                icon = Icons.Filled.Bolt,
+                title = "Manual",
+                body = "Tab Sesi → tombol Mulai Sesi sebelum bermain, tekan Akhiri saat selesai. Aplikasi mencatat suhu awal/akhir, tertinggi, rata-rata, durasi, dan jumlah sampel."
+            )
+            BulletItem(
+                icon = Icons.Filled.Settings,
+                title = "Auto-start saat game dibuka",
+                body = "Aktifkan toggle Sesi gaming otomatis di Settings, lalu izinkan Usage Access. Aplikasi akan otomatis membuka sesi setiap kali aplikasi kategori game muncul di foreground dan mengakhirinya saat keluar."
+            )
+        }
+
         Section(title = "Status warna") {
             BulletItem(
                 color = Color1,

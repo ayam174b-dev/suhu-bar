@@ -22,6 +22,8 @@ import com.tempmonitor.app.data.preferences.MonitorPreferences
 import com.tempmonitor.app.data.preferences.MonitorSettings
 import com.tempmonitor.app.data.repository.TemperatureRepository
 import com.tempmonitor.app.data.status
+import com.tempmonitor.app.session.ForegroundAppDetector
+import com.tempmonitor.app.session.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +42,8 @@ class TemperatureMonitorService : Service() {
     @Inject lateinit var reader: TemperatureReader
     @Inject lateinit var repository: TemperatureRepository
     @Inject lateinit var preferences: MonitorPreferences
+    @Inject lateinit var sessionManager: SessionManager
+    @Inject lateinit var foregroundAppDetector: ForegroundAppDetector
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loopJob: Job? = null
@@ -54,15 +58,38 @@ class TemperatureMonitorService : Service() {
         scope.launch {
             preferences.settings.collect { settingsFlow.value = it }
         }
+        scope.launch {
+            runCatching { sessionManager.restoreFromDb() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                scope.launch {
+                    runCatching { sessionManager.end(finalTemp = null) }
+                }
                 stopMonitoring()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_START_MANUAL_SESSION -> {
+                scope.launch {
+                    val seed = reader.read()?.batteryTemp ?: 0f
+                    sessionManager.start(
+                        seedTemp = seed,
+                        packageName = null,
+                        label = "Manual",
+                        auto = false
+                    )
+                }
+            }
+            ACTION_END_MANUAL_SESSION -> {
+                scope.launch {
+                    val finalTemp = reader.read()?.batteryTemp
+                    sessionManager.end(finalTemp)
+                }
             }
         }
 
@@ -94,6 +121,8 @@ class TemperatureMonitorService : Service() {
                 if (data != null) {
                     TemperatureState.publish(data)
                     updateNotification(data, settings)
+                    runCatching { handleSession(data, settings) }
+                        .onFailure { Log.w(TAG, "Session bookkeeping failed", it) }
                     val now = data.timestamp
                     if (now - lastSavedAt >= SAVE_INTERVAL_MS) {
                         runCatching { repository.save(data) }
@@ -104,6 +133,32 @@ class TemperatureMonitorService : Service() {
                     Log.w(TAG, "Skipping invalid temperature reading")
                 }
                 delay(settings.intervalSeconds.coerceAtLeast(3) * 1000L)
+            }
+        }
+    }
+
+    private suspend fun handleSession(data: TemperatureData, settings: MonitorSettings) {
+        // Always feed the active session so live stats keep updating regardless of source.
+        sessionManager.feed(data)
+
+        if (!settings.autoSessionGaming) return
+        if (!foregroundAppDetector.hasUsageStatsPermission()) return
+
+        val foreground = foregroundAppDetector.currentForegroundPackage()
+        val isGame = foreground != null && foregroundAppDetector.isGame(foreground)
+        val active = sessionManager.active.value
+
+        when {
+            active == null && isGame -> {
+                sessionManager.start(
+                    seedTemp = data.batteryTemp,
+                    packageName = foreground,
+                    label = foregroundAppDetector.appLabel(foreground!!),
+                    auto = true
+                )
+            }
+            active != null && active.auto && sessionManager.shouldAutoEnd(foreground) -> {
+                sessionManager.end(data.batteryTemp)
             }
         }
     }
@@ -214,6 +269,20 @@ class TemperatureMonitorService : Service() {
 
         const val ACTION_START = "com.tempmonitor.app.action.START"
         const val ACTION_STOP = "com.tempmonitor.app.action.STOP"
+        const val ACTION_START_MANUAL_SESSION = "com.tempmonitor.app.action.START_SESSION"
+        const val ACTION_END_MANUAL_SESSION = "com.tempmonitor.app.action.END_SESSION"
+
+        fun startManualSession(context: Context) {
+            val intent = Intent(context, TemperatureMonitorService::class.java)
+                .setAction(ACTION_START_MANUAL_SESSION)
+            context.startForegroundService(intent)
+        }
+
+        fun endManualSession(context: Context) {
+            val intent = Intent(context, TemperatureMonitorService::class.java)
+                .setAction(ACTION_END_MANUAL_SESSION)
+            context.startService(intent)
+        }
 
         fun start(context: Context) {
             val intent = Intent(context, TemperatureMonitorService::class.java)

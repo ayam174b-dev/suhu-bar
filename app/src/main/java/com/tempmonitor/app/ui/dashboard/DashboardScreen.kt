@@ -17,13 +17,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -82,6 +91,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -129,6 +139,89 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Stop Monitoring")
+            }
+        }
+
+        SessionInlineCard(
+            isRunning = state.isRunning,
+            activeSession = state.activeSession,
+            onStart = { TemperatureMonitorService.startManualSession(context) },
+            onStop = { TemperatureMonitorService.endManualSession(context) }
+        )
+    }
+}
+
+@Composable
+private fun SessionInlineCard(
+    isRunning: Boolean,
+    activeSession: com.tempmonitor.app.data.db.GameSession?,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.SportsEsports, contentDescription = null)
+                Text(
+                    "Sesi gaming",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            if (activeSession == null) {
+                Text(
+                    "Mulai sesi sebelum bermain untuk melacak suhu min/max/avg di tab Sesi.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                AssistChip(
+                    onClick = onStart,
+                    enabled = isRunning,
+                    label = { Text("Mulai Sesi") },
+                    leadingIcon = { Icon(Icons.Filled.PlayArrow, null) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        labelColor = MaterialTheme.colorScheme.onPrimary,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+                if (!isRunning) {
+                    Text(
+                        "Aktifkan Start Monitoring lebih dulu.",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            } else {
+                Text(
+                    activeSession.label + (if (activeSession.auto) " (otomatis)" else ""),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Max %.1f°C · Avg %.1f°C · Sampel ${activeSession.sampleCount}".format(
+                        activeSession.maxTemp,
+                        activeSession.avgTemp
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                AssistChip(
+                    onClick = onStop,
+                    label = { Text("Akhiri Sesi") },
+                    leadingIcon = { Icon(Icons.Filled.Stop, null) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        labelColor = MaterialTheme.colorScheme.onError,
+                        leadingIconContentColor = MaterialTheme.colorScheme.onError
+                    )
+                )
             }
         }
     }

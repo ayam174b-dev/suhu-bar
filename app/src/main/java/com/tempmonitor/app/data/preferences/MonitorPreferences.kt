@@ -21,7 +21,10 @@ data class MonitorSettings(
     val warmThreshold: Float = 40f,
     val hotThreshold: Float = 45f,
     val notificationsEnabled: Boolean = true,
-    val autoStartOnBoot: Boolean = false
+    val autoStartOnBoot: Boolean = false,
+    /** When true and Usage Access has been granted, the service auto-starts a session every
+     *  time the foreground app is identified as a game and ends it when the user leaves. */
+    val autoSessionGaming: Boolean = false
 )
 
 @Singleton
@@ -34,6 +37,7 @@ class MonitorPreferences @Inject constructor(
         val HOT = floatPreferencesKey("hot_threshold")
         val NOTIF = booleanPreferencesKey("notifications_enabled")
         val BOOT = booleanPreferencesKey("auto_start_on_boot")
+        val AUTO_SESSION = booleanPreferencesKey("auto_session_gaming")
     }
 
     val settings: Flow<MonitorSettings> = context.monitorDataStore.data.map { prefs ->
@@ -42,7 +46,8 @@ class MonitorPreferences @Inject constructor(
             warmThreshold = prefs[Keys.WARM] ?: 40f,
             hotThreshold = prefs[Keys.HOT] ?: 45f,
             notificationsEnabled = prefs[Keys.NOTIF] ?: true,
-            autoStartOnBoot = prefs[Keys.BOOT] ?: false
+            autoStartOnBoot = prefs[Keys.BOOT] ?: false,
+            autoSessionGaming = prefs[Keys.AUTO_SESSION] ?: false
         )
     }
 
@@ -63,5 +68,9 @@ class MonitorPreferences @Inject constructor(
 
     suspend fun setAutoStartOnBoot(enabled: Boolean) {
         context.monitorDataStore.edit { it[Keys.BOOT] = enabled }
+    }
+
+    suspend fun setAutoSessionGaming(enabled: Boolean) {
+        context.monitorDataStore.edit { it[Keys.AUTO_SESSION] = enabled }
     }
 }

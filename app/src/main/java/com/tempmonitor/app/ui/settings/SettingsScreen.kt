@@ -14,6 +14,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -28,13 +29,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var permissionTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            permissionTick++
+            delay(1_500L)
+        }
+    }
+    val hasUsageAccess = remember(permissionTick) { viewModel.hasUsageStatsPermission() }
 
     Column(
         modifier = Modifier
@@ -114,6 +131,52 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                         checked = settings.autoStartOnBoot,
                         onCheckedChange = viewModel::setAutoStartOnBoot
                     )
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Sesi gaming otomatis", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Mulai dan akhiri sesi otomatis ketika game (kategori game) dibuka di foreground.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoSessionGaming,
+                        onCheckedChange = viewModel::setAutoSessionGaming
+                    )
+                }
+                if (settings.autoSessionGaming) {
+                    Text(
+                        if (hasUsageAccess) "Akses penggunaan: aktif. Detektor foreground siap."
+                        else "Butuh izin Usage Access. Buka Settings sistem dan aktifkan untuk SuhuBar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (hasUsageAccess) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.error
+                    )
+                    OutlinedButton(onClick = {
+                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        runCatching { context.startActivity(intent) }
+                            .onFailure {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                    }) {
+                        Text("Buka Usage Access settings")
+                    }
                 }
             }
         }
