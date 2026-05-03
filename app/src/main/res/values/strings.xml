@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SuhuBar</string>
+    <string name="notif_channel_name">Temperature Monitor</string>
+    <string name="notif_channel_desc">Persistent notification showing real-time device temperature.</string>
+</resources>
