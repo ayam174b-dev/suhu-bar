@@ -15,6 +15,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.tempmonitor.app.MainActivity
 import com.tempmonitor.app.R
+import com.tempmonitor.app.data.BatteryStats
+import com.tempmonitor.app.data.BatteryStatsReader
+import com.tempmonitor.app.data.CurrentDirection
 import com.tempmonitor.app.data.TemperatureData
 import com.tempmonitor.app.data.TemperatureReader
 import com.tempmonitor.app.data.TemperatureStatus
@@ -40,6 +43,7 @@ import kotlin.math.roundToInt
 class TemperatureMonitorService : Service() {
 
     @Inject lateinit var reader: TemperatureReader
+    @Inject lateinit var batteryStatsReader: BatteryStatsReader
     @Inject lateinit var repository: TemperatureRepository
     @Inject lateinit var preferences: MonitorPreferences
     @Inject lateinit var sessionManager: SessionManager
@@ -49,12 +53,17 @@ class TemperatureMonitorService : Service() {
     private var loopJob: Job? = null
     private val settingsFlow = MutableStateFlow(MonitorSettings())
     private var wakeLock: PowerManager.WakeLock? = null
+    /** Latest battery snapshot, included in the persistent notification. */
+    @Volatile private var lastBatteryStats: BatteryStats? = null
+    /** True after we have already alerted the user about a full battery for the current charge cycle. */
+    @Volatile private var fullAlertSentForThisCharge: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         ensureChannel(this)
+        ensureBatteryFullChannel(this)
         scope.launch {
             preferences.settings.collect { settingsFlow.value = it }
         }
@@ -117,6 +126,15 @@ class TemperatureMonitorService : Service() {
             var lastSavedAt = 0L
             while (true) {
                 val settings = settingsFlow.value
+                val battery = runCatching { batteryStatsReader.read() }
+                    .onFailure { Log.w(TAG, "Battery stats read failed", it) }
+                    .getOrNull()
+                if (battery != null) {
+                    lastBatteryStats = battery
+                    TemperatureState.publishBattery(battery)
+                    runCatching { maybeAlertBatteryFull(battery) }
+                        .onFailure { Log.w(TAG, "Battery-full alert failed", it) }
+                }
                 val data = reader.read()
                 if (data != null) {
                     TemperatureState.publish(data)
@@ -135,6 +153,44 @@ class TemperatureMonitorService : Service() {
                 delay(settings.intervalSeconds.coerceAtLeast(3) * 1000L)
             }
         }
+    }
+
+    /**
+     * Posts a one-shot, high-priority alert when the battery first reaches the "full"
+     * state while plugged in, so the user can unplug before the cell stays at 100 % under
+     * load. Resets when the user unplugs (or the level drops below 99 %).
+     */
+    private fun maybeAlertBatteryFull(battery: BatteryStats) {
+        if (!battery.plugged || battery.levelPercent < 99f) {
+            // Reset latch on unplug or drop below 99 %.
+            fullAlertSentForThisCharge = false
+            return
+        }
+        if (!battery.isFull) return
+        if (fullAlertSentForThisCharge) return
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            2,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(this, BATTERY_FULL_CHANNEL_ID)
+            .setContentTitle("Baterai sudah penuh \u2014 cabut charger")
+            .setContentText(
+                "Level ${battery.levelPercent.roundToInt()}% \u00b7 " +
+                    "${battery.pluggedSource?.name ?: ""}. Lepas charger untuk mencegah baterai membengkak."
+            )
+            .setSmallIcon(R.drawable.ic_thermometer)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .build()
+        nm.notify(BATTERY_FULL_NOTIFICATION_ID, notif)
+        fullAlertSentForThisCharge = true
     }
 
     private suspend fun handleSession(data: TemperatureData, settings: MonitorSettings) {
@@ -190,6 +246,7 @@ class TemperatureMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val battery = lastBatteryStats
         val title: String
         val body: String
         if (latest == null) {
@@ -201,19 +258,21 @@ class TemperatureMonitorService : Service() {
                 TemperatureStatus.WARM -> "Warm"
                 TemperatureStatus.HOT -> "Hot"
             }
-            val battery = "${latest.batteryTemp.roundToInt()}°C"
+            val batteryTempStr = "${latest.batteryTemp.roundToInt()}°C"
             title = if (latest.cpuTemp != null) {
-                "🌡️ $battery | CPU ${latest.cpuTemp.roundToInt()}°C | $statusLabel"
+                "🌡️ $batteryTempStr | CPU ${latest.cpuTemp.roundToInt()}°C | $statusLabel"
             } else {
-                "🌡️ $battery | $statusLabel"
+                "🌡️ $batteryTempStr | $statusLabel"
             }
-            body = "Battery ${"%.1f".format(latest.batteryTemp)}°C" +
+            val tempLine = "Battery ${"%.1f".format(latest.batteryTemp)}°C" +
                 (latest.cpuTemp?.let { " · CPU ${"%.1f".format(it)}°C" } ?: "")
+            body = if (battery != null) tempLine + "\n" + formatBatteryNotificationLine(battery) else tempLine
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -261,10 +320,41 @@ class TemperatureMonitorService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * Builds the second body line for the foreground notification: shows the live current
+     * with sign and an ETA when charging, or the discharge rate when on battery.
+     */
+    private fun formatBatteryNotificationLine(battery: BatteryStats): String {
+        val parts = mutableListOf<String>()
+        parts += "Lvl ${battery.levelPercent.roundToInt()}%"
+        battery.currentNowMa?.let { mA ->
+            val sign = if (mA >= 0f) "+" else ""
+            parts += "${sign}${mA.roundToInt()} mA"
+        }
+        when (battery.direction) {
+            CurrentDirection.CHARGING -> battery.chargeTimeRemainingMs?.let {
+                parts += "ETA ${formatDurationShort(it)}"
+            }
+            CurrentDirection.FULL -> parts += "penuh — cabut"
+            CurrentDirection.IDLE_PLUGGED -> parts += "idle"
+            else -> {}
+        }
+        return parts.joinToString(" · ")
+    }
+
+    private fun formatDurationShort(ms: Long): String {
+        val totalMin = (ms / 60_000L).coerceAtLeast(0)
+        val h = totalMin / 60
+        val m = totalMin % 60
+        return if (h > 0) "${h}j ${m}m" else "${m}m"
+    }
+
     companion object {
         private const val TAG = "TempMonitorService"
         private const val CHANNEL_ID = "temperature_monitor_channel"
+        private const val BATTERY_FULL_CHANNEL_ID = "battery_full_channel"
         private const val NOTIFICATION_ID = 4242
+        private const val BATTERY_FULL_NOTIFICATION_ID = 4243
         private const val SAVE_INTERVAL_MS = 30_000L
 
         const val ACTION_START = "com.tempmonitor.app.action.START"
@@ -309,6 +399,23 @@ class TemperatureMonitorService : Service() {
                 setShowBadge(false)
                 enableLights(false)
                 enableVibration(false)
+            }
+            nm.createNotificationChannel(channel)
+        }
+
+        fun ensureBatteryFullChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val nm = context.getSystemService(NotificationManager::class.java) ?: return
+            if (nm.getNotificationChannel(BATTERY_FULL_CHANNEL_ID) != null) return
+            val channel = NotificationChannel(
+                BATTERY_FULL_CHANNEL_ID,
+                context.getString(R.string.notif_battery_full_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = context.getString(R.string.notif_battery_full_channel_desc)
+                setShowBadge(true)
+                enableLights(true)
+                enableVibration(true)
             }
             nm.createNotificationChannel(channel)
         }

@@ -131,6 +131,19 @@ fun InfoScreen(viewModel: InfoViewModel = hiltViewModel()) {
             )
         }
 
+        Section(title = "Arus & status charging") {
+            BulletItem(
+                icon = Icons.Filled.Bolt,
+                title = "Arus masuk / keluar (mA)",
+                body = "Dibaca dari BatteryManager.BATTERY_PROPERTY_CURRENT_NOW. Tanda + berarti arus mengisi baterai (charging), - berarti baterai dipakai (discharging). Beberapa kernel HyperOS membalik tanda; aplikasi mencoba menormalkan saat charger terdeteksi."
+            )
+            BulletItem(
+                icon = Icons.Filled.Notifications,
+                title = "ETA penuh & alert cabut charger",
+                body = "Saat charging, kartu Dashboard menampilkan estimasi waktu ke 100% (computeChargeTimeRemaining bila tersedia, atau dihitung dari sisa kapasitas / arus rata-rata). Begitu status FULL terdeteksi atau arus masuk turun ke ≤ 50 mA pada level ≥ 99%, notifikasi prioritas tinggi muncul agar charger bisa segera dicabut sebelum baterai menahan tegangan tinggi."
+            )
+        }
+
         Section(title = "Sesi gaming") {
             BulletItem(
                 icon = Icons.Filled.Bolt,

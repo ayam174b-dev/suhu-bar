@@ -30,7 +30,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
@@ -45,6 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tempmonitor.app.data.BatteryStats
+import com.tempmonitor.app.data.CurrentDirection
+import com.tempmonitor.app.data.PluggedSource
 import com.tempmonitor.app.data.TemperatureData
 import com.tempmonitor.app.data.TemperatureStatus
 import com.tempmonitor.app.data.status
@@ -112,6 +121,8 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
         } else if (state.isRunning) {
             CpuUnavailableCard()
         }
+
+        BatteryStatsCard(state.battery, state.isRunning)
 
         StatusBanner(
             running = state.isRunning,
@@ -294,6 +305,126 @@ private fun CpuUnavailableCard() {
             )
         }
     }
+}
+
+@Composable
+private fun BatteryStatsCard(stats: BatteryStats?, running: Boolean) {
+    val tone = when (stats?.direction) {
+        CurrentDirection.CHARGING -> NormalGreenContainer
+        CurrentDirection.FULL -> WarmAmberContainer
+        CurrentDirection.DISCHARGING -> MaterialTheme.colorScheme.surfaceVariant
+        CurrentDirection.IDLE_PLUGGED, CurrentDirection.IDLE -> MaterialTheme.colorScheme.surfaceVariant
+        null -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = tone)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val (icon, header) = when (stats?.direction) {
+                    CurrentDirection.CHARGING -> Icons.Filled.BatteryChargingFull to "Mengisi"
+                    CurrentDirection.FULL -> Icons.Filled.BatteryFull to "Penuh — cabut charger"
+                    CurrentDirection.DISCHARGING -> Icons.Filled.ArrowDownward to "Memakai daya"
+                    CurrentDirection.IDLE_PLUGGED -> Icons.Filled.BatteryStd to "Tercolok, idle"
+                    CurrentDirection.IDLE -> Icons.Filled.BatteryStd to "Idle"
+                    null -> Icons.Filled.PowerOff to "Arus & Baterai"
+                }
+                Icon(icon, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    header,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (stats == null) {
+                Text(
+                    if (running) "Membaca arus baterai…"
+                    else "Mulai monitoring untuk melihat arus, voltase, dan ETA full.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                return@Column
+            }
+
+            // Big current readout — the value that answers "berapa arus masuk/keluar?"
+            val currentLabel = stats.currentNowMa?.let { mA ->
+                val sign = if (mA >= 0f) "+" else ""
+                "$sign${mA.roundToInt()} mA"
+            } ?: "— mA"
+            Row(verticalAlignment = Alignment.Bottom) {
+                val arrow = when {
+                    stats.currentNowMa == null -> null
+                    stats.currentNowMa > 5f -> Icons.Filled.ArrowUpward
+                    stats.currentNowMa < -5f -> Icons.Filled.ArrowDownward
+                    else -> null
+                }
+                if (arrow != null) {
+                    Icon(arrow, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    currentLabel,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            stats.currentAvgMa?.let { avg ->
+                Text(
+                    "Rata-rata ${if (avg >= 0f) "+" else ""}${avg.roundToInt()} mA",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            // Level + voltage line
+            val levelStr = "${stats.levelPercent.roundToInt()}%"
+            val voltageStr = stats.voltageMv?.let { "${"%.2f".format(it / 1000f)} V" }
+            val sourceStr = stats.pluggedSource?.let { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
+            val parts = listOfNotNull(
+                "Level $levelStr",
+                voltageStr,
+                sourceStr?.let { "Colokan $it" }
+            )
+            if (parts.isNotEmpty()) {
+                Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium)
+            }
+
+            // ETA / status hint
+            when (stats.direction) {
+                CurrentDirection.CHARGING -> {
+                    val eta = stats.chargeTimeRemainingMs?.let { formatEta(it) }
+                    Text(
+                        "ETA penuh: ${eta ?: "menghitung…"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                CurrentDirection.FULL -> Text(
+                    "Sudah penuh. Lepas charger untuk mencegah baterai membengkak.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                CurrentDirection.IDLE_PLUGGED -> Text(
+                    "Charger tersambung tapi tidak ada arus masuk.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                CurrentDirection.DISCHARGING, CurrentDirection.IDLE -> {}
+            }
+        }
+    }
+}
+
+private fun formatEta(ms: Long): String {
+    val totalMin = (ms / 60_000L).coerceAtLeast(0)
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return if (h > 0) "${h}j ${m}m" else "${m}m"
 }
 
 @Composable

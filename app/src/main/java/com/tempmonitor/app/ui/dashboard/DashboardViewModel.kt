@@ -2,6 +2,7 @@ package com.tempmonitor.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tempmonitor.app.data.BatteryStats
 import com.tempmonitor.app.data.TemperatureData
 import com.tempmonitor.app.data.db.GameSession
 import com.tempmonitor.app.data.preferences.MonitorPreferences
@@ -20,7 +21,8 @@ data class DashboardUiState(
     val isRunning: Boolean = false,
     val latest: TemperatureData? = null,
     val settings: MonitorSettings = MonitorSettings(),
-    val activeSession: GameSession? = null
+    val activeSession: GameSession? = null,
+    val battery: BatteryStats? = null
 )
 
 @HiltViewModel
@@ -34,9 +36,10 @@ class DashboardViewModel @Inject constructor(
         TemperatureState.isRunning,
         TemperatureState.latest,
         preferences.settings,
-        sessionManager.active
-    ) { running, latest, settings, session ->
-        DashboardUiState(running, latest, settings, session)
+        sessionManager.active,
+        TemperatureState.batteryStats
+    ) { running, latest, settings, session, battery ->
+        DashboardUiState(running, latest, settings, session, battery)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

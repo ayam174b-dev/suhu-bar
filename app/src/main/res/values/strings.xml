@@ -3,4 +3,6 @@
     <string name="app_name">SuhuBar</string>
     <string name="notif_channel_name">Temperature Monitor</string>
     <string name="notif_channel_desc">Persistent notification showing real-time device temperature.</string>
+    <string name="notif_battery_full_channel_name">Baterai Penuh</string>
+    <string name="notif_battery_full_channel_desc">Peringatan saat baterai penuh agar charger bisa segera dicabut.</string>
 </resources>
