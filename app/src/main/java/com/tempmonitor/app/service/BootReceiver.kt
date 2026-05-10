@@ -25,7 +25,7 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 val settings = preferences.settings.first()
-                if (settings.autoStartOnBoot) {
+                if (settings.autoStartOnBoot || settings.alwaysMonitor) {
                     TemperatureMonitorService.start(context)
                 }
             } finally {

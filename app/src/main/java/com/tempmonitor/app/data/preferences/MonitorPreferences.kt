@@ -24,7 +24,10 @@ data class MonitorSettings(
     val autoStartOnBoot: Boolean = false,
     /** When true and Usage Access has been granted, the service auto-starts a session every
      *  time the foreground app is identified as a game and ends it when the user leaves. */
-    val autoSessionGaming: Boolean = false
+    val autoSessionGaming: Boolean = false,
+    /** When true, the monitoring service starts automatically whenever the app is opened and
+     *  is restarted by the OS if it gets killed in the background. */
+    val alwaysMonitor: Boolean = false
 )
 
 @Singleton
@@ -38,6 +41,7 @@ class MonitorPreferences @Inject constructor(
         val NOTIF = booleanPreferencesKey("notifications_enabled")
         val BOOT = booleanPreferencesKey("auto_start_on_boot")
         val AUTO_SESSION = booleanPreferencesKey("auto_session_gaming")
+        val ALWAYS = booleanPreferencesKey("always_monitor")
     }
 
     val settings: Flow<MonitorSettings> = context.monitorDataStore.data.map { prefs ->
@@ -47,7 +51,8 @@ class MonitorPreferences @Inject constructor(
             hotThreshold = prefs[Keys.HOT] ?: 45f,
             notificationsEnabled = prefs[Keys.NOTIF] ?: true,
             autoStartOnBoot = prefs[Keys.BOOT] ?: false,
-            autoSessionGaming = prefs[Keys.AUTO_SESSION] ?: false
+            autoSessionGaming = prefs[Keys.AUTO_SESSION] ?: false,
+            alwaysMonitor = prefs[Keys.ALWAYS] ?: false
         )
     }
 
@@ -72,5 +77,9 @@ class MonitorPreferences @Inject constructor(
 
     suspend fun setAutoSessionGaming(enabled: Boolean) {
         context.monitorDataStore.edit { it[Keys.AUTO_SESSION] = enabled }
+    }
+
+    suspend fun setAlwaysMonitor(enabled: Boolean) {
+        context.monitorDataStore.edit { it[Keys.ALWAYS] = enabled }
     }
 }

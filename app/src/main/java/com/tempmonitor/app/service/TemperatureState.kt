@@ -1,5 +1,6 @@
 package com.tempmonitor.app.service
 
+import com.tempmonitor.app.data.BatteryAggregate
 import com.tempmonitor.app.data.BatteryStats
 import com.tempmonitor.app.data.TemperatureData
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,9 @@ object TemperatureState {
     private val _batteryStats = MutableStateFlow<BatteryStats?>(null)
     val batteryStats: StateFlow<BatteryStats?> = _batteryStats
 
+    private val _batteryAggregate = MutableStateFlow<BatteryAggregate?>(null)
+    val batteryAggregate: StateFlow<BatteryAggregate?> = _batteryAggregate
+
     fun setRunning(running: Boolean) {
         _isRunning.value = running
     }
@@ -30,5 +34,9 @@ object TemperatureState {
 
     fun publishBattery(stats: BatteryStats) {
         _batteryStats.value = stats
+    }
+
+    fun publishAggregate(aggregate: BatteryAggregate) {
+        _batteryAggregate.value = aggregate
     }
 }

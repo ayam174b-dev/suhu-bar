@@ -132,6 +132,24 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                         onCheckedChange = viewModel::setAutoStartOnBoot
                     )
                 }
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Selalu monitor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Jalankan service tiap kali aplikasi dibuka dan biarkan OS me-restart kalau ke-kill di background. Tetap butuh whitelist autostart + no-restriction di MIUI.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = settings.alwaysMonitor,
+                        onCheckedChange = viewModel::setAlwaysMonitor
+                    )
+                }
             }
         }
 

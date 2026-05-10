@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import com.tempmonitor.app.MainActivity
 import com.tempmonitor.app.R
 import com.tempmonitor.app.data.BatteryStats
+import com.tempmonitor.app.data.BatteryStatsAggregator
 import com.tempmonitor.app.data.BatteryStatsReader
 import com.tempmonitor.app.data.CurrentDirection
 import com.tempmonitor.app.data.TemperatureData
@@ -44,6 +45,7 @@ class TemperatureMonitorService : Service() {
 
     @Inject lateinit var reader: TemperatureReader
     @Inject lateinit var batteryStatsReader: BatteryStatsReader
+    @Inject lateinit var batteryStatsAggregator: BatteryStatsAggregator
     @Inject lateinit var repository: TemperatureRepository
     @Inject lateinit var preferences: MonitorPreferences
     @Inject lateinit var sessionManager: SessionManager
@@ -132,6 +134,8 @@ class TemperatureMonitorService : Service() {
                 if (battery != null) {
                     lastBatteryStats = battery
                     TemperatureState.publishBattery(battery)
+                    runCatching { batteryStatsAggregator.feed(battery) }
+                        .onFailure { Log.w(TAG, "Aggregator feed failed", it) }
                     runCatching { maybeAlertBatteryFull(battery) }
                         .onFailure { Log.w(TAG, "Battery-full alert failed", it) }
                 }

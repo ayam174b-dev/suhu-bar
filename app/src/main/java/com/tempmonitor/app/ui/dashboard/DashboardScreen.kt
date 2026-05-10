@@ -51,9 +51,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tempmonitor.app.data.BatteryAggregate
 import com.tempmonitor.app.data.BatteryStats
 import com.tempmonitor.app.data.CurrentDirection
 import com.tempmonitor.app.data.PluggedSource
+import com.tempmonitor.app.data.instantPowerWatt
 import com.tempmonitor.app.data.TemperatureData
 import com.tempmonitor.app.data.TemperatureStatus
 import com.tempmonitor.app.data.status
@@ -122,7 +124,12 @@ fun DashboardScreen(viewModel: DashboardViewModel = hiltViewModel()) {
             CpuUnavailableCard()
         }
 
-        BatteryStatsCard(state.battery, state.isRunning)
+        BatteryStatsCard(
+            stats = state.battery,
+            aggregate = state.aggregate,
+            running = state.isRunning,
+            onResetAverages = viewModel::resetAggregate
+        )
 
         StatusBanner(
             running = state.isRunning,
@@ -308,7 +315,12 @@ private fun CpuUnavailableCard() {
 }
 
 @Composable
-private fun BatteryStatsCard(stats: BatteryStats?, running: Boolean) {
+private fun BatteryStatsCard(
+    stats: BatteryStats?,
+    aggregate: BatteryAggregate?,
+    running: Boolean,
+    onResetAverages: () -> Unit
+) {
     val tone = when (stats?.direction) {
         CurrentDirection.CHARGING -> NormalGreenContainer
         CurrentDirection.FULL -> WarmAmberContainer
@@ -375,10 +387,15 @@ private fun BatteryStatsCard(stats: BatteryStats?, running: Boolean) {
                     fontWeight = FontWeight.Bold
                 )
             }
-            stats.currentAvgMa?.let { avg ->
+
+            // Live watt line: V * A. Sign-less because the direction header already says
+            // whether power flows in or out of the battery.
+            val watt = stats.instantPowerWatt()
+            if (watt != null) {
                 Text(
-                    "Rata-rata ${if (avg >= 0f) "+" else ""}${avg.roundToInt()} mA",
-                    style = MaterialTheme.typography.bodySmall
+                    "Daya saat ini: ${"%.2f".format(watt)} W",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
 
@@ -417,6 +434,110 @@ private fun BatteryStatsCard(stats: BatteryStats?, running: Boolean) {
                 CurrentDirection.DISCHARGING, CurrentDirection.IDLE -> {}
             }
         }
+    }
+
+    // Running-averages card (always visible while monitoring) so the user can compare
+    // "rata-rata masuk" vs "rata-rata sekarang" continuously.
+    if (aggregate != null && aggregate.totalSamples > 0) {
+        BatteryAveragesCard(aggregate = aggregate, onReset = onResetAverages)
+    }
+}
+
+@Composable
+private fun BatteryAveragesCard(aggregate: BatteryAggregate, onReset: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().padding(top = 0.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Rata-rata sejak ${formatClock(aggregate.startedAtMs)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                AssistChip(
+                    onClick = onReset,
+                    label = { Text("Reset") }
+                )
+            }
+            Text(
+                "${aggregate.totalSamples} sampel · ${formatElapsed(aggregate.startedAtMs, aggregate.lastTimestampMs)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            AverageRow(
+                label = "Masuk (charging)",
+                samples = aggregate.chargeSamples,
+                avgMa = aggregate.avgChargeMa,
+                avgWatt = aggregate.avgChargeWatt
+            )
+            AverageRow(
+                label = "Keluar (discharging)",
+                samples = aggregate.dischargeSamples,
+                avgMa = aggregate.avgDischargeMa,
+                avgWatt = aggregate.avgDischargeWatt
+            )
+            aggregate.avgVoltageV?.let { v ->
+                Text(
+                    "Voltase rata-rata: ${"%.2f".format(v)} V",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AverageRow(label: String, samples: Int, avgMa: Float?, avgWatt: Float?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(
+                "$samples sampel",
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                avgMa?.let { "${it.roundToInt()} mA" } ?: "—",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                avgWatt?.let { "${"%.2f".format(it)} W" } ?: "—",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+private fun formatClock(ms: Long): String {
+    if (ms <= 0L) return "—"
+    val cal = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    val h = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val m = cal.get(java.util.Calendar.MINUTE)
+    return "%02d:%02d".format(h, m)
+}
+
+private fun formatElapsed(startMs: Long, endMs: Long): String {
+    if (startMs <= 0L || endMs <= 0L) return "—"
+    val totalSec = ((endMs - startMs) / 1000L).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return when {
+        h > 0 -> "${h}j ${m}m"
+        m > 0 -> "${m}m ${s}d"
+        else -> "${s}d"
     }
 }
 

@@ -45,4 +45,8 @@ class SettingsViewModel @Inject constructor(
     fun setAutoSessionGaming(enabled: Boolean) {
         viewModelScope.launch { preferences.setAutoSessionGaming(enabled) }
     }
+
+    fun setAlwaysMonitor(enabled: Boolean) {
+        viewModelScope.launch { preferences.setAlwaysMonitor(enabled) }
+    }
 }
